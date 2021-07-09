@@ -3,19 +3,30 @@ ffi = require("ffi")
 ffi.cdef[[
 enum {
 	NUM_TAGS = 8,
-	TM_N = 17;
-} 
+	TM_N = 17
+};
 
 typedef void *(*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
-typedef const char *(*lua_Reader)(lua_State *L, void *ud, size_t *sz);
-typdef int (*lua_Writer) (lua_State *L, const void *p, size_t sz, void *ud);
 typedef unsigned char lu_byte;
 typedef unsigned int Instruction;
 typedef size_t lu_mem;
 typedef double lua_Number;
 
+typedef union GCObject GCObject;
+
+typedef union {
+	GCObject *gc;
+	void *p;
+	lua_Number n;
+	int b;
+} Value;
+
+typedef struct lua_TValue {
+Value value;
+int tt;
+} TValue;;
+
 typedef TValue *StkId;
-typedef int (*lua_CFunction) (lua_State *L);
 
 typedef struct stringtable {
 	GCObject **hash;
@@ -90,23 +101,15 @@ typedef struct lua_State {
 	ptrdiff_t errfunc; 
 } lua_State;
 
+typedef const char * (*lua_Reader) (lua_State *L, void *ud, size_t *sz);
+typdef int (*lua_Writer) (lua_State *L, const void *p, size_t sz, void *ud);
+typedef int (*lua_CFunction) (lua_State *L);
+
 typedef struct GCheader {
 	GCObject *next; 
 	lu_byte tt;
 	lu_byte marked;
 } GCheader;
-
-typedef union {
-	GCObject *gc;
-	void *p;
-	lua_Number n;
-	int b;
-} Value;
-
-typedef struct lua_TValue {
-	Value value;
-	int tt;
-} TValue;
 
 typedef union {
 	double u;
@@ -219,7 +222,7 @@ union GCObject {
 	struct Proto p;
 	struct Upval uv;
 	struct lua_State th;
-} GCObject;
+};
 
 // Lua Standard API
 int lua_gettop(lua_State *L);
@@ -307,39 +310,61 @@ const char *luaL_checklstring(lua_State *L, int numArg, size_t *l);
 const char *luaL_optlstring(lua_State *L, int nArg, lua_Integer def);
 ]]
 
--- Define the following macros
--- #define lua_pop(L,n)		lua_settop(L, -(n)-1)
+local lua = { }
 
--- #define lua_newtable(L)		lua_createtable(L, 0, 0)
+function lua.lua_pop(L, n) lua.lua.settop(L, -n - 1) end
+function lua.lua_newtable(L) lua.lua_createtable(L, 0, 0) end
 
--- #define lua_register(L,n,f) (lua_pushcfunction(L, (f)), lua_setglobal(L, (n)))
+function lua.lua_register(L, n, f) 
+	lua_puschcfunction(L, f)
+	lua_setglobal(L, n)
+end
 
--- #define lua_pushcfunction(L,f)	lua_pushcclosure(L, (f), 0)
+function lua.lua_isfunction(L, n)
+	return lua.lua_type(L, n) == lua.LUA_TFUNCTION
+end
 
--- #define lua_strlen(L,i)		lua_objlen(L, (i))
+function lua.lua_istable(L, n)
+	return lua.lua_type(L, n) == lua.LUA_TTABLE
+end
 
--- #define lua_isfunction(L,n)	(lua_type(L, (n)) == LUA_TFUNCTION)
--- #define lua_istable(L,n)	(lua_type(L, (n)) == LUA_TTABLE)
--- #define lua_islightuserdata(L,n)	(lua_type(L, (n)) == LUA_TLIGHTUSERDATA)
--- #define lua_isnil(L,n)		(lua_type(L, (n)) == LUA_TNIL)
--- #define lua_isboolean(L,n)	(lua_type(L, (n)) == LUA_TBOOLEAN)
--- #define lua_isthread(L,n)	(lua_type(L, (n)) == LUA_TTHREAD)
--- #define lua_isnone(L,n)		(lua_type(L, (n)) == LUA_TNONE)
--- #define lua_isnoneornil(L, n)	(lua_type(L, (n)) <= 0)
+function lua.lua_islightuserdata(L, n)
+	return lua.lua_type(L, n) == lua.LUA_TLIGHTUSERDATA 
+end
 
--- #define lua_pushliteral(L, s)	\
-	lua_pushlstring(L, "" s, (sizeof(s)/sizeof(char))-1)
+function lua.lua_isnil(L, n) 
+	return lua.lua_type(L, n) == lua.LUA_TNIL
+ end
 
--- #define lua_setglobal(L,s)	lua_setfield(L, LUA_GLOBALSINDEX, (s))
--- #define lua_getglobal(L,s)	lua_getfield(L, LUA_GLOBALSINDEX, (s))
+function lua.lua_isboolean(L, n)
+	return lua.lua_type(L, n) == lua.LUA_TBOOLEAN 
+end
 
--- #define lua_tostring(L,i)	lua_tolstring(L, (i), NULL)
+function lua.lua_isthread(L, n) 
+	return lua.lua_type(L, n) == lua.LUA_TTHREAD 
+end
 
--- #define lua_open()	luaL_newstate()
+function lua.lua_isnone(L, n)
+	return lua.lua_type(L, n) == lua.LUA_TNONE 
+end
 
--- #define lua_getregistry(L)	lua_pushvalue(L, LUA_REGISTRYINDEX)
+function lua.lua_isnoneornil(L, n) return lua.lua_type(L, n) <= 0 end
 
--- #define lua_getgccount(L)	lua_gc(L, LUA_GCCOUNT, 0)
+function lua.lua_pushliteral(L, s) lua.lua_pushlstring(L, s, #s) end
 
--- #define lua_Chunkreader		lua_Reader
--- #define lua_Chunkwriter		lua_Writer
+function lua.lua_setglobal(L, s) 
+	lua_setfield(L, lua.LUA_GLOBALSINDEX, s)
+end
+
+function lua.lua_getglobal(L, s) 
+	lua_getfield(L, LUA_GLOBALSINDEX, s)
+end
+
+function lua.lua_tostring(L, i) return lua.lua_tolstring(L, i, nil) end	
+
+return setmetatable(lua, {
+	__index = function(table, key)
+		table[key] = ffi.C[key]
+		return table[key]
+	end
+})
