@@ -11,6 +11,8 @@ lib_readline = ffi.load("readline")
 
 local readline = { }
 
+readline.HISTORY_EXPANSION_ERROR = -1
+
 function readline.readline(prompt)
 	local line_ptr = lib_readline.readline(prompt)
 
